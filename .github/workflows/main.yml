@@ -1,41 +1,38 @@
-name: RDP-Via-Ngrok
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: windows-latest
-    steps:
-      - name: Enable RDP
+- name: Install Ngrok via Chocolatey
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
+          # Chocolatey se ngrok install karein (No link needed)
+          choco install ngrok -y
 
-      - name: Create User
+      - name: Authenticate and Start Ngrok
         run: |
-          $password = "MySafePass123!"  # Aap yaha apna pasand ka password likh dein
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "RDPUser" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "RDPUser"
-
-      - name: Download & Setup Ngrok
-        run: |
-          Invoke-WebRequest https://bin.equinox.io/c/b34edq6jn8A/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
-          Expand-Archive ngrok.zip
-          ./ngrok/ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-          Start-Process ./ngrok/ngrok.exe -ArgumentList "tcp 3389"
+          # Ngrok authenticate karein
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          
+          # TCP tunnel start karein background mein
+          Start-Process ngrok -ArgumentList "tcp 3389"
+          
+          # Wait karein taaki tunnel up ho jaye
+          Start-Sleep -Seconds 10
 
       - name: Get Connection Address
         run: |
+          # Local API se public address nikalne ki koshish
           $tunnels = Invoke-RestMethod http://localhost:4040/api/tunnels
           $address = $tunnels.tunnels.public_url
+          
+          # "tcp://" ko remove karna taaki direct RDP client mein paste ho sake
+          $cleanAddress = $address.Replace("tcp://", "")
+          
           Write-Host "=============================="
-          Write-Host "CONNECT TO: $address"
-          Write-Host "USERNAME: RDPUser"
-          Write-Host "PASSWORD: MySafePass123!"
+          Write-Host "🚀 CONNECT TO THIS ADDRESS:"
+          Write-Host "$cleanAddress"
+          Write-Host "------------------------------"
+          Write-Host "👤 USERNAME: RDPUser"
+          Write-Host "🔑 PASSWORD: MySafePass123!"
           Write-Host "=============================="
           
-          # Keep Alive
-          while($true) { Start-Sleep -Seconds 60 }
+          # Runner ko zinda rakhne ke liye loop
+          while($true) { 
+            Write-Host "RDP is running on $cleanAddress ... $(Get-Date)"
+            Start-Sleep -Seconds 60 
+          }
