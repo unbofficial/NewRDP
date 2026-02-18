@@ -1,4 +1,4 @@
-name: RDP-Ngrok-Final-Ultimate
+name: RDP-Ngrok-Final-Private
 
 on:
   workflow_dispatch:
@@ -9,58 +9,51 @@ jobs:
     steps:
       - name: 1. Setup Windows RDP & User
         run: |
-          # RDP enable karna aur security settings fix karna
+          # RDP Enable aur Security Settings
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          
-          # Firewall mein RDP (3389) allow karna
           netsh advfirewall firewall set rule group="remote desktop" new enable=Yes
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           
-          # Naya User 'RDPUser' aur Password setup
-          $password = "${{ secrets.USER_PASSWORD }}"
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "RDPUser" -Password $securePass -AccountNeverExpires -ErrorAction SilentlyContinue
+          # Secrets se Username aur Password lena
+          $user_name = "${{ secrets.RDP_USERNAME }}"
+          $user_pass = "${{ secrets.USER_PASSWORD }}"
+          $securePass = ConvertTo-SecureString $user_pass -AsPlainText -Force
           
-          # User ko Admin aur RDP Group mein add karna
-          Add-LocalGroupMember -Group "Administrators" -Member "RDPUser" -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser" -ErrorAction SilentlyContinue
+          # Naya User Create karna
+          New-LocalUser -Name $user_name -Password $securePass -AccountNeverExpires -ErrorAction SilentlyContinue
           
-          # Remote Desktop service ko restart karna taaki settings apply ho jayein
+          # User ko Groups mein add karna (Admin banany ke liye)
+          Add-LocalGroupMember -Group "Administrators" -Member $user_name -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $user_name -ErrorAction SilentlyContinue
+          
+          # Service restart karna
           Restart-Service -Name "TermService" -Force
 
       - name: 2. Install and Start Ngrok
         shell: pwsh
         run: |
           choco install ngrok -y
-          
-          if ("${{ secrets.NGROK_AUTH_TOKEN }}" -eq "") {
-            Write-Error "❌ ERROR: NGROK_AUTH_TOKEN is missing in GitHub Secrets!"
-            exit 1
-          }
-
           ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
           
-          Write-Host "Starting Ngrok Tunnel on Port 3389..."
-          # 127.0.0.1 use karne se connection loopback stable rehta hai
+          Write-Host "Starting Ngrok Tunnel..."
+          # Tunnel start karna
           Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region us"
-          
-          # Ngrok ko start hone ke liye thoda waqt dena
-          Start-Sleep -Seconds 20
+          Start-Sleep -Seconds 25
 
-      - name: 3. Get RDP Address
+      - name: 3. Connection Details
         shell: pwsh
         run: |
-          # Ngrok API se live address nikalna
+          # Ngrok se live address nikalna
           $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
           $address = $response.tunnels.public_url.Replace("tcp://", "")
           
           Write-Host "=========================================="
-          Write-Host "🚀 RDP IS READY! CONNECT NOW:"
+          Write-Host "🚀 RDP IS READY TO CONNECT!"
           Write-Host "ADDRESS  : $address"
-          Write-Host "USERNAME : .\RDPUser"
-          Write-Host "PASSWORD : MySafePass123!"
+          Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
+          Write-Host "PASSWORD : [HIDDEN IN SECRETS]"
           Write-Host "=========================================="
+          Write-Host "Note: Type '.\' before your secret username in RDP."
 
       - name: 4. Keep Alive (6 Hours)
         run: |
