@@ -1,70 +1,47 @@
-name: RDP-Via-Ngrok-Fixed
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: windows-latest
-    steps:
-      - name: Configure RDP and User
+- name: Install and Start Ngrok
         run: |
-          # Enable RDP
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          
-          # Create User
-          $password = "MySafePass123!"
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "RDPUser" -Password $securePass -AccountNeverExpires -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Administrators" -Member "RDPUser" -ErrorAction SilentlyContinue
-          
-          Write-Host "✅ User 'RDPUser' created with password: $password"
-
-      - name: Install and Start Ngrok
-        run: |
-          # Install via Choco
           choco install ngrok -y
           
-          # Verify installation
-          if (!(Get-Command ngrok -ErrorAction SilentlyContinue)) {
-            Write-Error "Ngrok installation failed"
+          # Auth Token ko verify karein (Ye step check karega ki secret mil raha hai ya nahi)
+          if ("${{ secrets.NGROK_AUTH_TOKEN }}" -eq "") {
+            Write-Error "NGROK_AUTH_TOKEN is empty! Please add it to GitHub Secrets."
             exit 1
           }
 
-          # Set Auth Token (Make sure secret NGROK_AUTH_TOKEN is set in GitHub)
           ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
           
-          # Start Tunnel
-          Start-Process ngrok -ArgumentList "tcp 3389"
-          Start-Sleep -Seconds 15
+          # Tunnel ko specific region (us) ke saath start karein
+          Write-Host "Starting Ngrok tunnel..."
+          Start-Process ngrok -ArgumentList "tcp --region us 3389"
+          
+          # Wait time badha diya taaki tunnel stable ho jaye
+          Start-Sleep -Seconds 20
 
       - name: Get Connection Address
         run: |
+          # Debugging: Check if Ngrok process is even running
+          $process = Get-Process ngrok -ErrorAction SilentlyContinue
+          if (!$process) {
+            Write-Error "Ngrok process failed to start. Check your Auth Token."
+            exit 1
+          }
+
           try {
             $tunnels = Invoke-RestMethod http://localhost:4040/api/tunnels
             $address = $tunnels.tunnels[0].public_url
-            if (-not $address) { throw "No tunnel address found" }
             
             $cleanAddress = $address.Replace("tcp://", "")
             
             Write-Host "=============================="
-            Write-Host "🚀 SUCCESS! CONNECT NOW:"
+            Write-Host "🚀 CONNECT NOW:"
             Write-Host "ADDRESS: $cleanAddress"
             Write-Host "USER: RDPUser"
             Write-Host "PASS: MySafePass123!"
             Write-Host "=============================="
           }
           catch {
-            Write-Error "Could not get Ngrok address. Check if Auth Token is valid."
-            # Debug: Check ngrok logs
-            Get-Process ngrok
+            # Agar fail ho, toh Ngrok ke internal logs dekhein
+            Write-Host "Failed to get address. Fetching Ngrok logs..."
+            curl.exe http://localhost:4040/api/tunnels
             exit 1
-          }
-
-      - name: Keep Alive
-        run: |
-          while($true) {
-            Write-Host "RDP Active... $(Get-Date)"
-            Start-Sleep -Seconds 60
           }
