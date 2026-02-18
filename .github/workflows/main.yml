@@ -18,7 +18,7 @@ jobs:
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           
           # Naya User 'RDPUser' aur Password setup
-          $password = "MySafePass123!"
+          $password = "${{ secrets.USER_PASSWORD }}"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDPUser" -Password $securePass -AccountNeverExpires -ErrorAction SilentlyContinue
           
