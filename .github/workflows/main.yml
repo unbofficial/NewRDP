@@ -1,74 +1,41 @@
-name: RDP-Secure-Tailscale
+name: RDP-Via-Ngrok
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp:
+  build:
     runs-on: windows-latest
-    timeout-minutes: 3600
-
     steps:
-      - name: Configure Core RDP Settings
+      - name: Enable RDP
         run: |
-          # Enable RDP
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-          
-          # Firewall Rule
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-          Restart-Service -Name TermService -Force
+          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
 
-      - name: Create RDP User with Masked Password
+      - name: Create User
         run: |
-          # Generate Secure Password
-          $password = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 16 | ForEach-Object {[char]$_})
-          
-          # IMPORTANT: Mask the password so it shows as *** in logs
-          Write-Host "::add-mask::$password"
-          
+          $password = "MySafePass123!"  # Aap yaha apna pasand ka password likh dein
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDPUser" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDPUser"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser"
-          
-          # Store for next steps
-          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
-          echo "RDP_USER=RDPUser" >> $env:GITHUB_ENV
 
-      - name: Install Tailscale
+      - name: Download & Setup Ngrok
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Invoke-WebRequest https://bin.equinox.io/c/b34edq6jn8A/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+          Expand-Archive ngrok.zip
+          ./ngrok/ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          Start-Process ./ngrok/ngrok.exe -ArgumentList "tcp 3389"
 
-      - name: Establish Tailscale Connection
+      - name: Get Connection Address
         run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${{ github.run_id }}
-          
-          $tsIP = $null
-          for ($i=0; $i -lt 10; $i++) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              if ($tsIP) { break }
-              Start-Sleep -Seconds 5
-          }
-          echo "TS_IP=$tsIP" >> $env:GITHUB_ENV
-
-      - name: Display Connection Info
-        run: |
+          $tunnels = Invoke-RestMethod http://localhost:4040/api/tunnels
+          $address = $tunnels.tunnels.public_url
           Write-Host "=============================="
-          Write-Host "IP ADDRESS: $env:TS_IP"
-          Write-Host "USERNAME: $env:RDP_USER"
-          Write-Host "PASSWORD: $env:RDP_PASS" 
-          Write-Host "Note: If password shows ***, check your local notes."
+          Write-Host "CONNECT TO: $address"
+          Write-Host "USERNAME: RDPUser"
+          Write-Host "PASSWORD: MySafePass123!"
           Write-Host "=============================="
-
-      - name: Keep Alive Loop
-        run: |
-          while ($true) {
-              Write-Host "Runner is active... $(Get-Date)"
-              Start-Sleep -Seconds 60
-          }
+          
+          # Keep Alive
+          while($true) { Start-Sleep -Seconds 60 }
