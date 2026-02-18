@@ -1,4 +1,4 @@
-name: RDP-Ngrok-Final-Fix
+name: RDP-Ngrok-Ultimate-Fix
 
 on:
   workflow_dispatch:
@@ -7,14 +7,23 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Setup RDP User
+      - name: Setup Windows RDP & User
         run: |
+          # 1. RDP Enable karna aur security check bypass karna
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          
+          # 2. Firewall mein RDP Port (3389) allow karna
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          
+          # 3. Naya User 'RDPUser' create karna
           $password = "MySafePass123!"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDPUser" -Password $securePass -AccountNeverExpires -ErrorAction SilentlyContinue
+          
+          # 4. User ko Admin aur RDP group mein add karna (Most Important)
           Add-LocalGroupMember -Group "Administrators" -Member "RDPUser" -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDPUser" -ErrorAction SilentlyContinue
 
       - name: Install and Start Ngrok
         shell: pwsh
@@ -28,43 +37,38 @@ jobs:
 
           ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
           
-          Write-Host "Starting Ngrok with logging..."
-          # Ngrok ko log file ke saath start karein
-          Start-Process ngrok -ArgumentList "tcp --region us 3389 --log=stdout" -RedirectStandardOutput "ngrok.log"
+          Write-Host "Starting Ngrok Tunnel..."
+          # Port 3389 par tunnel start ho raha hai
+          Start-Process ngrok -ArgumentList "tcp --region ap 3389 --log=stdout" -RedirectStandardOutput "ngrok.log"
           
-          Start-Sleep -Seconds 30
+          Start-Sleep -Seconds 20
 
       - name: Extract Address and Connect
         shell: pwsh
         run: |
-          # Log file se address nikalne ki koshish
           if (Test-Path "ngrok.log") {
             $logContent = Get-Content "ngrok.log" -Raw
-            Write-Host "--- Ngrok Logs Start ---"
-            Write-Host $logContent
-            Write-Host "--- Ngrok Logs End ---"
-            
-            # Regex se address dhoondein (jaise 0.tcp.ngrok.io:12345)
             if ($logContent -match "url=tcp://(.*?)\s") {
                 $address = $matches[1]
-                Write-Host "=============================="
-                Write-Host "🚀 SUCCESS! RDP IS READY"
-                Write-Host "ADDRESS: $address"
-                Write-Host "USER: RDPUser"
-                Write-Host "PASS: MySafePass123!"
-                Write-Host "=============================="
+                Write-Host "=========================================="
+                Write-Host "🚀 RDP IS READY TO CONNECT!"
+                Write-Host "ADDRESS  : $address"
+                Write-Host "USERNAME : .\RDPUser"
+                Write-Host "PASSWORD : MySafePass123!"
+                Write-Host "=========================================="
+                Write-Host "Note: Type '.\RDPUser' in the username field."
             } else {
-                Write-Error "❌ Address not found in logs. Check if Token is valid."
+                Write-Error "❌ Address not found. Check Ngrok Token."
                 exit 1
             }
-          } else {
-            Write-Error "❌ Log file not created."
-            exit 1
           }
 
       - name: Keep Alive Loop
         run: |
-          while($true) {
-            Write-Host "Keep-Alive: Runner is active... $(Get-Date)"
+          Write-Host "Runner keeps running for 6 hours..."
+          $i = 0
+          while($i -lt 360) { 
+            Write-Host "Keep-Alive: $(Get-Date)"
             Start-Sleep -Seconds 60
+            $i++
           }
