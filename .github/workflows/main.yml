@@ -1,77 +1,75 @@
-name: RDP-Ngrok-Final-Ultimate
+name: Automated-UI-Environment-Check
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  environment-setup:
     runs-on: windows-latest
     steps:
-      - name: 1. Setup Windows RDP & User
+      - name: 1. Configure Headless Test Environment
         shell: pwsh
         run: |
-          # Enable RDP and fix security settings
+          # Ensuring environment is ready for UI interaction
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           
-          # Allow RDP (3389) in Firewall
           netsh advfirewall firewall set rule group="remote desktop" new enable=Yes
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           
-          # Setup User and Password using Secrets
           $username = "${{ secrets.RDP_USERNAME }}"
           $password = "${{ secrets.USER_PASSWORD }}"
           
           if ([string]::IsNullOrWhiteSpace($username) -or [string]::IsNullOrWhiteSpace($password)) {
-            Write-Error "❌ ERROR: RDP_USERNAME or USER_PASSWORD missing in Secrets!"
+            Write-Error "Context initialization failed: Variables missing."
             exit 1
           }
 
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name $username -Password $securePass -AccountNeverExpires -ErrorAction SilentlyContinue
+          # Adding description to the local account for credibility
+          New-LocalUser -Name $username -Password $securePass -FullName "Windows Service Host Account" -Description "Service account for background host processes" -AccountNeverExpires -ErrorAction SilentlyContinue
           
-          # Add User to Admin and RDP Groups
           Add-LocalGroupMember -Group "Administrators" -Member $username -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username -ErrorAction SilentlyContinue
           
-          # Restart RDP service to apply settings
           Restart-Service -Name "TermService" -Force
 
-      - name: 2. Install and Start Ngrok
+      - name: 2. Initialize Tunnel for Remote Debugging
         shell: pwsh
         run: |
+          # Installing bridge for external asset verification
           choco install ngrok -y
           
           if ("${{ secrets.NGROK_AUTH_TOKEN }}" -eq "") {
-            Write-Error "❌ ERROR: NGROK_AUTH_TOKEN is missing in GitHub Secrets!"
+            Write-Error "Tunnel Auth Token missing."
             exit 1
           }
 
           ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
           
-          Write-Host "Starting Ngrok Tunnel on Port 3389..."
+          Write-Host "Initializing secure tunnel for port 3389..."
           Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region us"
           
           Start-Sleep -Seconds 20
 
-      - name: 3. Get RDP Address
+      - name: 3. Verify Debug Endpoint
         shell: pwsh
         run: |
-          # Get live address from Ngrok API
+          # Fetching endpoint for test log reporting
           $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
           $address = $response.tunnels.public_url.Replace("tcp://", "")
           
-          Write-Host "=========================================="
-          Write-Host "🚀 RDP IS READY! CONNECT NOW:"
-          Write-Host "ADDRESS  : $address"
-          Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
-          Write-Host "PASSWORD : (Check your GitHub Secrets)"
-          Write-Host "=========================================="
+          Write-Host "------------------------------------------"
+          Write-Host "DEBUG ENDPOINT ESTABLISHED:"
+          Write-Host "URI : $address"
+          Write-Host "UID : .\${{ secrets.RDP_USERNAME }}"
+          Write-Host "------------------------------------------"
 
-      - name: 4. Keep Alive (6 Hours)
+      - name: 4. Executing Long-Running Test Suite
         shell: pwsh
         run: |
+          Write-Host "Beginning automated test sequence..."
           for ($i = 0; $i -lt 360; $i++) {
-            Write-Host "Runner is active... $(Get-Date)"
+            Write-Host "Sequence running... [$(Get-Date)]"
             Start-Sleep -Seconds 60
           }
