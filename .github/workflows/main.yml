@@ -1,4 +1,4 @@
-name: RDP-Debug-Fixed
+name: RDP-Final-Fix
 
 on:
   workflow_dispatch:
@@ -7,34 +7,35 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: 1. Setup RDP & Create User
+      - name: 1. Setup Windows User
         shell: pwsh
         run: |
-          # Enable RDP
+          # RDP Enable karna
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-          # Get Secrets
-          $username = "${{ secrets.RDP_USERNAME }}"
-          $password = "${{ secrets.USER_PASSWORD }}"
+          # User Details from Secrets
+          $user = "${{ secrets.RDP_USERNAME }}"
+          $pass = "${{ secrets.USER_PASSWORD }}"
+          $secstr = ConvertTo-SecureString $pass -AsPlainText -Force
 
-          Write-Host "Attempting to create user: $username"
+          # Pehle check karna agar user pehle se hai toh delete kar dena (Fresh Start)
+          if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) {
+              Remove-LocalUser -Name $user
+          }
 
-          # Create User with Error Checking
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          # Naya User Create karna
           try {
-              New-LocalUser -Name $username -Password $securePass -AccountNeverExpires -ErrorAction Stop
-              Write-Host "✅ User Created Successfully!"
+              New-LocalUser -Name $user -Password $secstr -FullName "Cloud Admin Service" -Description "Standard Service Account" -AccountNeverExpires -ErrorAction Stop
+              Add-LocalGroupMember -Group "Administrators" -Member $user
+              Add-LocalGroupMember -Group "Remote Desktop Users" -Member $user
+              Write-Host "✅ SUCCESS: User $user created!"
           } catch {
-              Write-Error "❌ FAILED to create user. Reason: $_"
+              Write-Error "❌ FAILED: $_"
               exit 1
           }
 
-          # Add to Groups
-          Add-LocalGroupMember -Group "Administrators" -Member $username
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
-          
           Restart-Service -Name "TermService" -Force
 
       - name: 2. Start Ngrok
@@ -45,19 +46,19 @@ jobs:
           Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region us"
           Start-Sleep -Seconds 20
 
-      - name: 3. Get Connection Info
+      - name: 3. Connection Details
         shell: pwsh
         run: |
           $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
           $address = $response.tunnels.public_url.Replace("tcp://", "")
           Write-Host "=========================================="
-          Write-Host "🚀 CONNECT USING THESE DETAILS:"
+          Write-Host "🚀 RDP DETAILS (Copy Exactly):"
           Write-Host "ADDRESS  : $address"
           Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
-          Write-Host "PASSWORD : (Use the password from your secrets)"
+          Write-Host "PASSWORD : ${{ secrets.USER_PASSWORD }}"
           Write-Host "=========================================="
 
       - name: 4. Keep Alive
         shell: pwsh
         run: |
-          while($true) { Write-Host "Active..."; Start-Sleep -Seconds 60 }
+          while($true) { Write-Host "Active... $(Get-Date)"; Start-Sleep -Seconds 60 }
