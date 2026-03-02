@@ -1,4 +1,4 @@
-name: RDP-Persistent-Final-V9
+name: RDP-Persistent-Final-V10
 
 on:
   workflow_dispatch:
@@ -11,9 +11,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: C:\BrowserData
-          key: chrome-session-v1
+          key: edge-session-v1
           restore-keys: |
-            chrome-session-
+            edge-session-
 
       - name: 2. Setup User and Permissions
         shell: pwsh
@@ -28,33 +28,24 @@ jobs:
           New-LocalUser -Name $user -Password $secstr -AccountNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
           
-          # Root Folder Setup
+          # Browser Data Folder setup
           if (!(Test-Path "C:\BrowserData")) { New-Item -Path "C:\BrowserData" -ItemType Directory -Force }
           icacls "C:\BrowserData" /grant "Everyone:(OI)(CI)F" /T /C
 
-      - name: 3. Download Portable Chrome (No Install)
-        shell: pwsh
-        run: |
-          # Portable Chrome download karna taaki Permission error na aaye
-          Invoke-WebRequest -Uri "https://github.com/Hibbiki/chromium-win64/releases/download/v122.0.6261.95/chrome.zip" -OutFile "C:\chrome.zip"
-          Expand-Archive -Path "C:\chrome.zip" -DestinationPath "C:\ChromeApp" -Force
-          Write-Host "✅ Portable Chrome Ready"
-
-      - name: 4. Create Shortcuts (New Logic)
+      - name: 3. Create Shortcuts (Edge Version)
         shell: pwsh
         run: |
           $publicDesktop = "C:\Users\Public\Desktop"
           
-          # Is baar hum naya download kiya hua chrome chalaein ge
-          $chromePath = "C:\ChromeApp\chrome-win\chrome.exe"
-          $chromeCmd = "@echo off`nstart `"`" `"$chromePath`" --user-data-dir='C:\BrowserData' --no-sandbox --disable-setuid-sandbox --no-first-run"
-          $chromeCmd | Out-File "$publicDesktop\Open_Chrome.bat" -Encoding ascii
+          # Microsoft Edge Launcher (Chrome ka bhai, no permission issues)
+          $edgeCmd = "@echo off`nstart msedge --user-data-dir='C:\BrowserData' --no-first-run --no-default-browser-check"
+          $edgeCmd | Out-File "$publicDesktop\Open_Browser.bat" -Encoding ascii
           
           # EXIT & SAVE Signal
           $stopCmd = "@echo off`necho Saving and Closing...`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
           $stopCmd | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
 
-      - name: 5. Start Ngrok (Asia)
+      - name: 4. Start Ngrok (Asia)
         shell: pwsh
         run: |
           choco install ngrok -y
@@ -62,7 +53,7 @@ jobs:
           Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region ap"
           Start-Sleep -Seconds 20
 
-      - name: 6. Connection Info
+      - name: 5. Connection Info
         shell: pwsh
         run: |
           $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
@@ -70,11 +61,12 @@ jobs:
           Write-Host "ADDRESS  : $address"
           Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
 
-      - name: 7. Wait for Exit Signal
+      - name: 6. Wait for Exit Signal
         shell: pwsh
         run: |
           Write-Host "RDP Active. Double-click SAVE_AND_EXIT to finish."
+          # Loop checking for file signal
           while (!(Test-Path "C:\exit_signal.txt")) {
             Start-Sleep -Seconds 5
           }
-          Write-Host "✅ Signal Received. Saving data..."
+          Write-Host "✅ Exit Signal Received. Saving data..."
