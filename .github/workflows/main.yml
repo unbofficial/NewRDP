@@ -1,4 +1,4 @@
-name: RDP-Persistent-Final-Fixed
+name: RDP-Persistent-Final-V5
 
 on:
   workflow_dispatch:
@@ -10,53 +10,48 @@ jobs:
       - name: 1. Restore Browser Session
         uses: actions/cache@v3
         with:
-          path: C:\BrowserProfile
-          key: browser-session-${{ github.run_id }}
+          path: C:\Users\runneradmin\Documents\BrowserProfile
+          key: chrome-data-${{ github.run_id }}
           restore-keys: |
-            browser-session-
+            chrome-data-
 
-      - name: 2. Setup Windows & User
+      - name: 2. Setup User & Permissions
         shell: pwsh
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           $user = "${{ secrets.RDP_USERNAME }}"
           $pass = "${{ secrets.USER_PASSWORD }}"
           $secstr = ConvertTo-SecureString $pass -AsPlainText -Force
-          
-          # Create User
           New-LocalUser -Name $user -Password $secstr -AccountNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           
-          if (!(Test-Path "C:\BrowserProfile")) { New-Item -Path "C:\BrowserProfile" -ItemType Directory -Force }
-          "run" | Out-File "C:\stop_signal.txt" -Force
+          # Naya Safe Path: Documents ke andar
+          $profilePath = "C:\Users\runneradmin\Documents\BrowserProfile"
+          if (!(Test-Path $profilePath)) { New-Item -Path $profilePath -ItemType Directory -Force }
+          
+          # Permissions Full Control dena taaki Chrome nakhre na kare
+          icacls $profilePath /grant "Everyone:(OI)(CI)F" /T
 
-      - name: 3. Create Shortcuts (Fixed Method)
+      - name: 3. Create Shortcuts (New Command)
         shell: pwsh
         run: |
-          $user = "${{ secrets.RDP_USERNAME }}"
-          
-          # Script content
-          $chromeCmd = "start chrome --user-data-dir='C:\BrowserProfile' --no-first-run"
-          $stopCmd = "echo 'Saving and Closing...' && del C:\stop_signal.txt"
-
-          # Save to C: first (Safe zone)
-          $chromeCmd | Out-File "C:\Open_Chrome.bat" -Force
-          $stopCmd | Out-File "C:\SAVE_AND_EXIT.bat" -Force
-
-          # Copy to Public Desktop so it's visible to any user who logs in
           $publicDesktop = "C:\Users\Public\Desktop"
-          Copy-Item "C:\Open_Chrome.bat" -Destination $publicDesktop -Force
-          Copy-Item "C:\SAVE_AND_EXIT.bat" -Destination $publicDesktop -Force
+          $profilePath = "C:\Users\runneradmin\Documents\BrowserProfile"
           
-          Write-Host "✅ Shortcuts created on Public Desktop"
+          # Chrome command with NO-SANDBOX and DISABLED-SECURITY
+          $chromeCmd = "@echo off`nstart chrome --user-data-dir='$profilePath' --no-sandbox --disable-setuid-sandbox --no-first-run"
+          $chromeCmd | Out-File "$publicDesktop\Open_Chrome.bat" -Encoding ascii
+          
+          # Save and Exit command
+          "@echo off`necho Saving and Closing...`nstart calc.exe`nexit" | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
 
-      - name: 4. Start Ngrok
+      - name: 4. Start Ngrok (Asia)
         shell: pwsh
         run: |
           choco install ngrok -y
           ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
-          Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region us"
+          Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region ap"
           Start-Sleep -Seconds 20
 
       - name: 5. Connection Info
@@ -64,17 +59,19 @@ jobs:
         run: |
           $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
           $address = $response.tunnels.public_url.Replace("tcp://", "")
-          Write-Host "=========================================="
           Write-Host "ADDRESS  : $address"
-          Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
-          Write-Host "PASSWORD : ${{ secrets.USER_PASSWORD }}"
-          Write-Host "=========================================="
+          Write-Host "USER     : .\${{ secrets.RDP_USERNAME }}"
+          Write-Host "PASS     : ${{ secrets.USER_PASSWORD }}"
 
-      - name: 6. Wait for "Save & Exit" Click
+      - name: 6. Wait for Exit Signal
         shell: pwsh
         run: |
-          Write-Host "RDP is active. Double-click 'SAVE_AND_EXIT' on Desktop to finish."
-          while(Test-Path "C:\stop_signal.txt") {
+          Write-Host "RDP Active. Double-click SAVE_AND_EXIT on desktop to FINISH and SAVE."
+          while ($true) {
+            if (Get-Process -Name "calc" -ErrorAction SilentlyContinue) {
+              Write-Host "✅ Signal Received. Shutting down..."
+              Stop-Process -Name "calc" -Force
+              break
+            }
             Start-Sleep -Seconds 10
           }
-          Write-Host "✅ Exit signal received. Saving session to GitHub Cache..."
