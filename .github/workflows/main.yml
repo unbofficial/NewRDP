@@ -1,4 +1,4 @@
-name: RDP-Persistent-Final-V8
+name: RDP-Persistent-Final-V9
 
 on:
   workflow_dispatch:
@@ -11,9 +11,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: C:\BrowserData
-          key: chrome-data-v1
+          key: chrome-session-v1
           restore-keys: |
-            chrome-data-
+            chrome-session-
 
       - name: 2. Setup User and Permissions
         shell: pwsh
@@ -30,25 +30,31 @@ jobs:
           
           # Root Folder Setup
           if (!(Test-Path "C:\BrowserData")) { New-Item -Path "C:\BrowserData" -ItemType Directory -Force }
-          
-          # Permissions: Is baar hum 'Everyone' ko full malik bana rahe hain
           icacls "C:\BrowserData" /grant "Everyone:(OI)(CI)F" /T /C
-          attrib -r "C:\BrowserData\*.*" /s /d
 
-      - name: 3. Create Shortcuts (New Logic)
+      - name: 3. Download Portable Chrome (No Install)
+        shell: pwsh
+        run: |
+          # Portable Chrome download karna taaki Permission error na aaye
+          Invoke-WebRequest -Uri "https://github.com/Hibbiki/chromium-win64/releases/download/v122.0.6261.95/chrome.zip" -OutFile "C:\chrome.zip"
+          Expand-Archive -Path "C:\chrome.zip" -DestinationPath "C:\ChromeApp" -Force
+          Write-Host "✅ Portable Chrome Ready"
+
+      - name: 4. Create Shortcuts (New Logic)
         shell: pwsh
         run: |
           $publicDesktop = "C:\Users\Public\Desktop"
           
-          # Chrome Launcher (Is baar Chrome ko majboor karenge login save karne par)
-          $chromeCmd = "@echo off`nstart chrome --user-data-dir='C:\BrowserData' --no-sandbox --disable-setuid-sandbox --no-first-run --disable-gpu --remote-debugging-port=9222"
+          # Is baar hum naya download kiya hua chrome chalaein ge
+          $chromePath = "C:\ChromeApp\chrome-win\chrome.exe"
+          $chromeCmd = "@echo off`nstart `"`" `"$chromePath`" --user-data-dir='C:\BrowserData' --no-sandbox --disable-setuid-sandbox --no-first-run"
           $chromeCmd | Out-File "$publicDesktop\Open_Chrome.bat" -Encoding ascii
           
-          # EXIT & SAVE: Is baar hum ek simple command use karenge jo workflow ko signal dega
+          # EXIT & SAVE Signal
           $stopCmd = "@echo off`necho Saving and Closing...`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
           $stopCmd | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
 
-      - name: 4. Start Ngrok
+      - name: 5. Start Ngrok (Asia)
         shell: pwsh
         run: |
           choco install ngrok -y
@@ -56,7 +62,7 @@ jobs:
           Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region ap"
           Start-Sleep -Seconds 20
 
-      - name: 5. Connection Info
+      - name: 6. Connection Info
         shell: pwsh
         run: |
           $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
@@ -64,12 +70,11 @@ jobs:
           Write-Host "ADDRESS  : $address"
           Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
 
-      - name: 6. Wait for Exit Signal (Reliable)
+      - name: 7. Wait for Exit Signal
         shell: pwsh
         run: |
-          Write-Host "RDP Active. Double-click SAVE_AND_EXIT on desktop to FINISH."
-          # Loop tab tak chalega jab tak 'C:\exit_signal.txt' file nahi banti
+          Write-Host "RDP Active. Double-click SAVE_AND_EXIT to finish."
           while (!(Test-Path "C:\exit_signal.txt")) {
             Start-Sleep -Seconds 5
           }
-          Write-Host "✅ Exit Signal Received. Saving data and finishing workflow..."
+          Write-Host "✅ Signal Received. Saving data..."
