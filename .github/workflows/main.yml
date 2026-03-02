@@ -1,4 +1,4 @@
-name: RDP-Persistent-Final-V7
+name: RDP-Persistent-Final-V8
 
 on:
   workflow_dispatch:
@@ -11,11 +11,11 @@ jobs:
         uses: actions/cache@v3
         with:
           path: C:\BrowserData
-          key: chrome-data-${{ github.run_id }}
+          key: chrome-data-v1
           restore-keys: |
             chrome-data-
 
-      - name: 2. Setup User and System Permissions
+      - name: 2. Setup User and Permissions
         shell: pwsh
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
@@ -28,25 +28,24 @@ jobs:
           New-LocalUser -Name $user -Password $secstr -AccountNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
           
-          $profilePath = "C:\BrowserData"
-          if (!(Test-Path $profilePath)) { New-Item -Path $profilePath -ItemType Directory -Force }
+          # Root Folder Setup
+          if (!(Test-Path "C:\BrowserData")) { New-Item -Path "C:\BrowserData" -ItemType Directory -Force }
           
-          takeown /f $profilePath /r /d y
-          icacls $profilePath /grant "Everyone:(OI)(CI)F" /T /C
-          icacls $profilePath /grant "Administrators:(OI)(CI)F" /T /C
-          
-          Write-Host "Permissions fixed for $profilePath"
+          # Permissions: Is baar hum 'Everyone' ko full malik bana rahe hain
+          icacls "C:\BrowserData" /grant "Everyone:(OI)(CI)F" /T /C
+          attrib -r "C:\BrowserData\*.*" /s /d
 
-      - name: 3. Create Shortcuts
+      - name: 3. Create Shortcuts (New Logic)
         shell: pwsh
         run: |
           $publicDesktop = "C:\Users\Public\Desktop"
-          $profilePath = "C:\BrowserData"
           
-          $chromeCmd = "@echo off`nstart chrome --user-data-dir='$profilePath' --no-sandbox --disable-setuid-sandbox --no-first-run --disable-gpu --disable-dev-shm-usage"
+          # Chrome Launcher (Is baar Chrome ko majboor karenge login save karne par)
+          $chromeCmd = "@echo off`nstart chrome --user-data-dir='C:\BrowserData' --no-sandbox --disable-setuid-sandbox --no-first-run --disable-gpu --remote-debugging-port=9222"
           $chromeCmd | Out-File "$publicDesktop\Open_Chrome.bat" -Encoding ascii
           
-          $stopCmd = "@echo off`necho Saving and Closing...`nstart calc.exe`nexit"
+          # EXIT & SAVE: Is baar hum ek simple command use karenge jo workflow ko signal dega
+          $stopCmd = "@echo off`necho Saving and Closing...`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
           $stopCmd | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
 
       - name: 4. Start Ngrok
@@ -62,20 +61,15 @@ jobs:
         run: |
           $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
           $address = $response.tunnels.public_url.Replace("tcp://", "")
-          Write-Host "=========================================="
           Write-Host "ADDRESS  : $address"
           Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
-          Write-Host "=========================================="
 
-      - name: 6. Wait for Exit Signal
+      - name: 6. Wait for Exit Signal (Reliable)
         shell: pwsh
         run: |
-          Write-Host "RDP Active. Double-click SAVE_AND_EXIT on desktop to FINISH and SAVE."
-          while ($true) {
-            if (Get-Process -Name "calc" -ErrorAction SilentlyContinue) {
-              Write-Host "Signal Received. Saving and Exiting..."
-              Stop-Process -Name "calc" -Force
-              break
-            }
-            Start-Sleep -Seconds 10
+          Write-Host "RDP Active. Double-click SAVE_AND_EXIT on desktop to FINISH."
+          # Loop tab tak chalega jab tak 'C:\exit_signal.txt' file nahi banti
+          while (!(Test-Path "C:\exit_signal.txt")) {
+            Start-Sleep -Seconds 5
           }
+          Write-Host "✅ Exit Signal Received. Saving data and finishing workflow..."
