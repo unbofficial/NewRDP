@@ -1,4 +1,4 @@
-name: RDP-Persistent-Final-V3
+name: RDP-Persistent-Final-Fixed
 
 on:
   workflow_dispatch:
@@ -23,29 +23,33 @@ jobs:
           $pass = "${{ secrets.USER_PASSWORD }}"
           $secstr = ConvertTo-SecureString $pass -AsPlainText -Force
           
-          # User creation
+          # Create User
           New-LocalUser -Name $user -Password $secstr -AccountNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           
           if (!(Test-Path "C:\BrowserProfile")) { New-Item -Path "C:\BrowserProfile" -ItemType Directory -Force }
+          "run" | Out-File "C:\stop_signal.txt" -Force
 
-      - name: 3. Create Desktop Shortcuts
+      - name: 3. Create Shortcuts (Fixed Method)
         shell: pwsh
         run: |
           $user = "${{ secrets.RDP_USERNAME }}"
-          $desktopPath = "C:\Users\$user\Desktop"
           
-          # 1. Chrome Shortcut with Profile
-          $chromeAction = "start chrome --user-data-dir='C:\BrowserProfile'"
-          $chromeAction | Out-File "$desktopPath\Open_Chrome.bat"
+          # Script content
+          $chromeCmd = "start chrome --user-data-dir='C:\BrowserProfile' --no-first-run"
+          $stopCmd = "echo 'Saving and Closing...' && del C:\stop_signal.txt"
 
-          # 2. SAVE & STOP Shortcut
-          $stopAction = "echo Stopping... && del C:\stop_signal.txt"
-          $stopAction | Out-File "$desktopPath\SAVE_AND_EXIT.bat"
+          # Save to C: first (Safe zone)
+          $chromeCmd | Out-File "C:\Open_Chrome.bat" -Force
+          $stopCmd | Out-File "C:\SAVE_AND_EXIT.bat" -Force
+
+          # Copy to Public Desktop so it's visible to any user who logs in
+          $publicDesktop = "C:\Users\Public\Desktop"
+          Copy-Item "C:\Open_Chrome.bat" -Destination $publicDesktop -Force
+          Copy-Item "C:\SAVE_AND_EXIT.bat" -Destination $publicDesktop -Force
           
-          # Signal file create karna
-          "run" | Out-File "C:\stop_signal.txt"
+          Write-Host "✅ Shortcuts created on Public Desktop"
 
       - name: 4. Start Ngrok
         shell: pwsh
@@ -60,9 +64,11 @@ jobs:
         run: |
           $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
           $address = $response.tunnels.public_url.Replace("tcp://", "")
+          Write-Host "=========================================="
           Write-Host "ADDRESS  : $address"
           Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
           Write-Host "PASSWORD : ${{ secrets.USER_PASSWORD }}"
+          Write-Host "=========================================="
 
       - name: 6. Wait for "Save & Exit" Click
         shell: pwsh
@@ -71,4 +77,4 @@ jobs:
           while(Test-Path "C:\stop_signal.txt") {
             Start-Sleep -Seconds 10
           }
-          Write-Host "Exit signal received. Saving data..."
+          Write-Host "✅ Exit signal received. Saving session to GitHub Cache..."
