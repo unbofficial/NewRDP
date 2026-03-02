@@ -1,79 +1,81 @@
 name: RDP-Persistent-Final-V7
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: windows-latest
-steps:
-- name: 1. Restore Browser Session
-uses: actions/cache@v3
-with:
-path: C:\BrowserData
-key: chrome-data-${{ github.run_id }}
-restore-keys: |
-chrome-data-
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: 1. Restore Browser Session
+        uses: actions/cache@v3
+        with:
+          path: C:\BrowserData
+          key: chrome-data-${{ github.run_id }}
+          restore-keys: |
+            chrome-data-
 
-  - name: 2. Setup User and System Permissions
-    shell: pwsh
-    run: |
-      Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-      Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-      Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-      
-      $user = "${{ secrets.RDP_USERNAME }}"
-      $pass = "${{ secrets.USER_PASSWORD }}"
-      $secstr = ConvertTo-SecureString $pass -AsPlainText -Force
-      New-LocalUser -Name $user -Password $secstr -AccountNeverExpires -ErrorAction SilentlyContinue
-      Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
-      
-      $profilePath = "C:\BrowserData"
-      if (!(Test-Path $profilePath)) { New-Item -Path $profilePath -ItemType Directory -Force }
-      
-      takeown /f $profilePath /r /d y
-      icacls $profilePath /grant "Everyone:(OI)(CI)F" /T /C
-      icacls $profilePath /grant "Administrators:(OI)(CI)F" /T /C
-      
-      Write-Host "Permissions fixed for $profilePath"
+      - name: 2. Setup User and System Permissions
+        shell: pwsh
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          
+          $user = "${{ secrets.RDP_USERNAME }}"
+          $pass = "${{ secrets.USER_PASSWORD }}"
+          $secstr = ConvertTo-SecureString $pass -AsPlainText -Force
+          New-LocalUser -Name $user -Password $secstr -AccountNeverExpires -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
+          
+          $profilePath = "C:\BrowserData"
+          if (!(Test-Path $profilePath)) { New-Item -Path $profilePath -ItemType Directory -Force }
+          
+          takeown /f $profilePath /r /d y
+          icacls $profilePath /grant "Everyone:(OI)(CI)F" /T /C
+          icacls $profilePath /grant "Administrators:(OI)(CI)F" /T /C
+          
+          Write-Host "Permissions fixed for $profilePath"
 
-  - name: 3. Create Shortcuts
-    shell: pwsh
-    run: |
-      $publicDesktop = "C:\Users\Public\Desktop"
-      $profilePath = "C:\BrowserData"
-      
-      $chromeCmd = "@echo off`nstart chrome --user-data-dir='$profilePath' --no-sandbox --disable-setuid-sandbox --no-first-run --disable-gpu --disable-dev-shm-usage"
-      $chromeCmd | Out-File "$publicDesktop\Open_Chrome.bat" -Encoding ascii
-      
-      $stopCmd = "@echo off`necho Saving and Closing...`nstart calc.exe`nexit"
-      $stopCmd | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
+      - name: 3. Create Shortcuts
+        shell: pwsh
+        run: |
+          $publicDesktop = "C:\Users\Public\Desktop"
+          $profilePath = "C:\BrowserData"
+          
+          $chromeCmd = "@echo off`nstart chrome --user-data-dir='$profilePath' --no-sandbox --disable-setuid-sandbox --no-first-run --disable-gpu --disable-dev-shm-usage"
+          $chromeCmd | Out-File "$publicDesktop\Open_Chrome.bat" -Encoding ascii
+          
+          $stopCmd = "@echo off`necho Saving and Closing...`nstart calc.exe`nexit"
+          $stopCmd | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
 
-  - name: 4. Start Ngrok
-    shell: pwsh
-    run: |
-      choco install ngrok -y
-      ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
-      Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region ap"
-      Start-Sleep -Seconds 20
+      - name: 4. Start Ngrok
+        shell: pwsh
+        run: |
+          choco install ngrok -y
+          ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
+          Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region ap"
+          Start-Sleep -Seconds 20
 
-  - name: 5. Connection Info
-    shell: pwsh
-    run: |
-      $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
-      $address = $response.tunnels.public_url.Replace("tcp://", "")
-      Write-Host "ADDRESS  : $address"
-      Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
+      - name: 5. Connection Info
+        shell: pwsh
+        run: |
+          $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
+          $address = $response.tunnels.public_url.Replace("tcp://", "")
+          Write-Host "=========================================="
+          Write-Host "ADDRESS  : $address"
+          Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
+          Write-Host "=========================================="
 
-  - name: 6. Wait for Exit Signal
-    shell: pwsh
-    run: |
-      Write-Host "RDP Active. Double-click SAVE_AND_EXIT on desktop to FINISH and SAVE."
-      while ($true) {
-        if (Get-Process -Name "calc" -ErrorAction SilentlyContinue) {
-          Write-Host "Signal Received. Saving and Exiting..."
-          Stop-Process -Name "calc" -Force
-          break
-        }
-        Start-Sleep -Seconds 10
-      }
+      - name: 6. Wait for Exit Signal
+        shell: pwsh
+        run: |
+          Write-Host "RDP Active. Double-click SAVE_AND_EXIT on desktop to FINISH and SAVE."
+          while ($true) {
+            if (Get-Process -Name "calc" -ErrorAction SilentlyContinue) {
+              Write-Host "Signal Received. Saving and Exiting..."
+              Stop-Process -Name "calc" -Force
+              break
+            }
+            Start-Sleep -Seconds 10
+          }
