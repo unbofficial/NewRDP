@@ -1,4 +1,4 @@
-name: RDP-Final-Fix
+name: RDP-Persistent-Final-V3
 
 on:
   workflow_dispatch:
@@ -7,38 +7,47 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: 1. Setup Windows User
+      - name: 1. Restore Browser Session
+        uses: actions/cache@v3
+        with:
+          path: C:\BrowserProfile
+          key: browser-session-${{ github.run_id }}
+          restore-keys: |
+            browser-session-
+
+      - name: 2. Setup Windows & User
         shell: pwsh
         run: |
-          # RDP Enable karna
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-
-          # User Details from Secrets
           $user = "${{ secrets.RDP_USERNAME }}"
           $pass = "${{ secrets.USER_PASSWORD }}"
           $secstr = ConvertTo-SecureString $pass -AsPlainText -Force
+          
+          # User creation
+          New-LocalUser -Name $user -Password $secstr -AccountNeverExpires -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          
+          if (!(Test-Path "C:\BrowserProfile")) { New-Item -Path "C:\BrowserProfile" -ItemType Directory -Force }
 
-          # Pehle check karna agar user pehle se hai toh delete kar dena (Fresh Start)
-          if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) {
-              Remove-LocalUser -Name $user
-          }
+      - name: 3. Create Desktop Shortcuts
+        shell: pwsh
+        run: |
+          $user = "${{ secrets.RDP_USERNAME }}"
+          $desktopPath = "C:\Users\$user\Desktop"
+          
+          # 1. Chrome Shortcut with Profile
+          $chromeAction = "start chrome --user-data-dir='C:\BrowserProfile'"
+          $chromeAction | Out-File "$desktopPath\Open_Chrome.bat"
 
-          # Naya User Create karna
-          try {
-              New-LocalUser -Name $user -Password $secstr -FullName "Cloud Admin Service" -Description "Standard Service Account" -AccountNeverExpires -ErrorAction Stop
-              Add-LocalGroupMember -Group "Administrators" -Member $user
-              Add-LocalGroupMember -Group "Remote Desktop Users" -Member $user
-              Write-Host "✅ SUCCESS: User $user created!"
-          } catch {
-              Write-Error "❌ FAILED: $_"
-              exit 1
-          }
+          # 2. SAVE & STOP Shortcut
+          $stopAction = "echo Stopping... && del C:\stop_signal.txt"
+          $stopAction | Out-File "$desktopPath\SAVE_AND_EXIT.bat"
+          
+          # Signal file create karna
+          "run" | Out-File "C:\stop_signal.txt"
 
-          Restart-Service -Name "TermService" -Force
-
-      - name: 2. Start Ngrok
+      - name: 4. Start Ngrok
         shell: pwsh
         run: |
           choco install ngrok -y
@@ -46,19 +55,20 @@ jobs:
           Start-Process ngrok -ArgumentList "tcp 127.0.0.1:3389 --region us"
           Start-Sleep -Seconds 20
 
-      - name: 3. Connection Details
+      - name: 5. Connection Info
         shell: pwsh
         run: |
           $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
           $address = $response.tunnels.public_url.Replace("tcp://", "")
-          Write-Host "=========================================="
-          Write-Host "🚀 RDP DETAILS (Copy Exactly):"
           Write-Host "ADDRESS  : $address"
           Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
           Write-Host "PASSWORD : ${{ secrets.USER_PASSWORD }}"
-          Write-Host "=========================================="
 
-      - name: 4. Keep Alive
+      - name: 6. Wait for "Save & Exit" Click
         shell: pwsh
         run: |
-          while($true) { Write-Host "Active... $(Get-Date)"; Start-Sleep -Seconds 60 }
+          Write-Host "RDP is active. Double-click 'SAVE_AND_EXIT' on Desktop to finish."
+          while(Test-Path "C:\stop_signal.txt") {
+            Start-Sleep -Seconds 10
+          }
+          Write-Host "Exit signal received. Saving data..."
