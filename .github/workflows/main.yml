@@ -1,4 +1,4 @@
-name: RDP-Persistent-Final-V11
+name: RDP-Persistent-Final-V12
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: C:\Users\Public\BrowserData
-          key: edge-session-v2
+          key: edge-session-v3
           restore-keys: |
             edge-session-
 
@@ -28,11 +28,9 @@ jobs:
           New-LocalUser -Name $user -Password $secstr -AccountNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
           
-          # Naya Safe Folder: Public directory mein
           $dataPath = "C:\Users\Public\BrowserData"
           if (!(Test-Path $dataPath)) { New-Item -Path $dataPath -ItemType Directory -Force }
           
-          # Permissions: Sabko full access aur Read-Only hatana taaki popup na aaye
           icacls $dataPath /grant "Everyone:(OI)(CI)F" /T /C /Q
           attrib -r "$dataPath\*.*" /s /d
 
@@ -42,12 +40,12 @@ jobs:
           $publicDesktop = "C:\Users\Public\Desktop"
           $dataPath = "C:\Users\Public\BrowserData"
           
-          # Browser Launcher (Edge)
+          # Browser Launcher
           $edgeCmd = "@echo off`nstart msedge --user-data-dir=`"$dataPath`" --no-first-run --no-default-browser-check"
           $edgeCmd | Out-File "$publicDesktop\Open_Browser.bat" -Encoding ascii
           
-          # EXIT & SAVE Signal
-          $stopCmd = "@echo off`necho Saving and Closing...`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
+          # EXIT & SAVE Signal (Isme Edge ko Forcibly KILL karne ki command add ki hai)
+          $stopCmd = "@echo off`necho Saving and Closing...`ntaskkill /F /IM msedge.exe /T >nul 2>&1`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
           $stopCmd | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
 
       - name: 4. Start Ngrok
@@ -66,11 +64,18 @@ jobs:
           Write-Host "ADDRESS  : $address"
           Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
 
-      - name: 6. Wait for Exit Signal
+      - name: 6. Wait for Exit Signal & Clean File Locks
         shell: pwsh
         run: |
           Write-Host "RDP Active. Double-click SAVE_AND_EXIT to finish."
           while (!(Test-Path "C:\exit_signal.txt")) {
             Start-Sleep -Seconds 5
           }
-          Write-Host "✅ Exit Signal Received. Saving data..."
+          Write-Host "✅ Exit Signal Received."
+          
+          # Edge ke saare hidden processes ko khatam karna taaki cache save ho sake
+          Write-Host "🧹 Cleaning up background processes to unlock files..."
+          Stop-Process -Name "msedge" -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name "chrome" -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 5
+          Write-Host "✅ Files unlocked. Ready to save data."
