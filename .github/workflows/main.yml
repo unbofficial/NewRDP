@@ -1,4 +1,4 @@
-name: RDP-Persistent-Chrome-V13
+name: RDP-Persistent-Chrome-V14
 
 on:
   workflow_dispatch:
@@ -11,7 +11,8 @@ jobs:
         uses: actions/cache@v3
         with:
           path: C:\Users\Public\BrowserData
-          key: chrome-session-v1
+          # Hum 'run_id' use kar rahe hain taaki latest cache uthaye, aur 'restore-keys' purana data laye
+          key: chrome-session-${{ github.run_id }}
           restore-keys: |
             chrome-session-
 
@@ -34,7 +35,7 @@ jobs:
           icacls $dataPath /grant "Everyone:(OI)(CI)F" /T /C /Q
           attrib -r "$dataPath\*.*" /s /d
 
-      - name: 3. Create Shortcuts (Chrome Version)
+      - name: 3. Create Shortcuts
         shell: pwsh
         run: |
           $publicDesktop = "C:\Users\Public\Desktop"
@@ -44,8 +45,8 @@ jobs:
           $chromeCmd = "@echo off`nstart chrome --user-data-dir=`"$dataPath`" --no-sandbox --disable-setuid-sandbox --no-first-run --no-default-browser-check"
           $chromeCmd | Out-File "$publicDesktop\Open_Chrome.bat" -Encoding ascii
           
-          # EXIT & SAVE Signal (Chrome ko band karke signal dena)
-          $stopCmd = "@echo off`necho Saving and Closing...`ntaskkill /F /IM chrome.exe /T >nul 2>&1`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
+          # EXIT & SAVE Signal
+          $stopCmd = "@echo off`necho Closing Chrome...`ntaskkill /F /IM chrome.exe /T >nul 2>&1`necho Saving Signal...`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
           $stopCmd | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
 
       - name: 4. Start Ngrok
@@ -72,9 +73,7 @@ jobs:
             Start-Sleep -Seconds 5
           }
           Write-Host "✅ Exit Signal Received."
-          
-          # Chrome ko forcibly band karna taaki files free ho jayein
-          Write-Host "🧹 Closing Chrome processes for safe saving..."
+          Write-Host "🧹 Closing Chrome processes..."
           Stop-Process -Name "chrome" -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 5
-          Write-Host "✅ Chrome closed. Saving data..."
+          Write-Host "✅ Chrome closed. Preparing for GitHub Cache save..."
