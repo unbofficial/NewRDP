@@ -1,4 +1,4 @@
-name: RDP-Persistent-Final-V12
+name: RDP-Persistent-Chrome-V13
 
 on:
   workflow_dispatch:
@@ -7,13 +7,13 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: 1. Restore Browser Session
+      - name: 1. Restore Chrome Session
         uses: actions/cache@v3
         with:
           path: C:\Users\Public\BrowserData
-          key: edge-session-v3
+          key: chrome-session-v1
           restore-keys: |
-            edge-session-
+            chrome-session-
 
       - name: 2. Setup User and Permissions
         shell: pwsh
@@ -34,18 +34,18 @@ jobs:
           icacls $dataPath /grant "Everyone:(OI)(CI)F" /T /C /Q
           attrib -r "$dataPath\*.*" /s /d
 
-      - name: 3. Create Shortcuts
+      - name: 3. Create Shortcuts (Chrome Version)
         shell: pwsh
         run: |
           $publicDesktop = "C:\Users\Public\Desktop"
           $dataPath = "C:\Users\Public\BrowserData"
           
-          # Browser Launcher
-          $edgeCmd = "@echo off`nstart msedge --user-data-dir=`"$dataPath`" --no-first-run --no-default-browser-check"
-          $edgeCmd | Out-File "$publicDesktop\Open_Browser.bat" -Encoding ascii
+          # Google Chrome Launcher
+          $chromeCmd = "@echo off`nstart chrome --user-data-dir=`"$dataPath`" --no-sandbox --disable-setuid-sandbox --no-first-run --no-default-browser-check"
+          $chromeCmd | Out-File "$publicDesktop\Open_Chrome.bat" -Encoding ascii
           
-          # EXIT & SAVE Signal (Isme Edge ko Forcibly KILL karne ki command add ki hai)
-          $stopCmd = "@echo off`necho Saving and Closing...`ntaskkill /F /IM msedge.exe /T >nul 2>&1`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
+          # EXIT & SAVE Signal (Chrome ko band karke signal dena)
+          $stopCmd = "@echo off`necho Saving and Closing...`ntaskkill /F /IM chrome.exe /T >nul 2>&1`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
           $stopCmd | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
 
       - name: 4. Start Ngrok
@@ -64,7 +64,7 @@ jobs:
           Write-Host "ADDRESS  : $address"
           Write-Host "USERNAME : .\${{ secrets.RDP_USERNAME }}"
 
-      - name: 6. Wait for Exit Signal & Clean File Locks
+      - name: 6. Wait for Exit Signal & Force Kill Chrome
         shell: pwsh
         run: |
           Write-Host "RDP Active. Double-click SAVE_AND_EXIT to finish."
@@ -73,9 +73,8 @@ jobs:
           }
           Write-Host "✅ Exit Signal Received."
           
-          # Edge ke saare hidden processes ko khatam karna taaki cache save ho sake
-          Write-Host "🧹 Cleaning up background processes to unlock files..."
-          Stop-Process -Name "msedge" -Force -ErrorAction SilentlyContinue
+          # Chrome ko forcibly band karna taaki files free ho jayein
+          Write-Host "🧹 Closing Chrome processes for safe saving..."
           Stop-Process -Name "chrome" -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 5
-          Write-Host "✅ Files unlocked. Ready to save data."
+          Write-Host "✅ Chrome closed. Saving data..."
