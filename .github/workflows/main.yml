@@ -1,4 +1,4 @@
-name: RDP-Persistent-Final-V10
+name: RDP-Persistent-Final-V11
 
 on:
   workflow_dispatch:
@@ -10,8 +10,8 @@ jobs:
       - name: 1. Restore Browser Session
         uses: actions/cache@v3
         with:
-          path: C:\BrowserData
-          key: edge-session-v1
+          path: C:\Users\Public\BrowserData
+          key: edge-session-v2
           restore-keys: |
             edge-session-
 
@@ -28,24 +28,29 @@ jobs:
           New-LocalUser -Name $user -Password $secstr -AccountNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
           
-          # Browser Data Folder setup
-          if (!(Test-Path "C:\BrowserData")) { New-Item -Path "C:\BrowserData" -ItemType Directory -Force }
-          icacls "C:\BrowserData" /grant "Everyone:(OI)(CI)F" /T /C
+          # Naya Safe Folder: Public directory mein
+          $dataPath = "C:\Users\Public\BrowserData"
+          if (!(Test-Path $dataPath)) { New-Item -Path $dataPath -ItemType Directory -Force }
+          
+          # Permissions: Sabko full access aur Read-Only hatana taaki popup na aaye
+          icacls $dataPath /grant "Everyone:(OI)(CI)F" /T /C /Q
+          attrib -r "$dataPath\*.*" /s /d
 
-      - name: 3. Create Shortcuts (Edge Version)
+      - name: 3. Create Shortcuts
         shell: pwsh
         run: |
           $publicDesktop = "C:\Users\Public\Desktop"
+          $dataPath = "C:\Users\Public\BrowserData"
           
-          # Microsoft Edge Launcher (Chrome ka bhai, no permission issues)
-          $edgeCmd = "@echo off`nstart msedge --user-data-dir='C:\BrowserData' --no-first-run --no-default-browser-check"
+          # Browser Launcher (Edge)
+          $edgeCmd = "@echo off`nstart msedge --user-data-dir=`"$dataPath`" --no-first-run --no-default-browser-check"
           $edgeCmd | Out-File "$publicDesktop\Open_Browser.bat" -Encoding ascii
           
           # EXIT & SAVE Signal
           $stopCmd = "@echo off`necho Saving and Closing...`npowershell -Command `"New-Item -Path 'C:\exit_signal.txt' -ItemType File -Force`"`nexit"
           $stopCmd | Out-File "$publicDesktop\SAVE_AND_EXIT.bat" -Encoding ascii
 
-      - name: 4. Start Ngrok (Asia)
+      - name: 4. Start Ngrok
         shell: pwsh
         run: |
           choco install ngrok -y
@@ -65,7 +70,6 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "RDP Active. Double-click SAVE_AND_EXIT to finish."
-          # Loop checking for file signal
           while (!(Test-Path "C:\exit_signal.txt")) {
             Start-Sleep -Seconds 5
           }
